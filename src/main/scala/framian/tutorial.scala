@@ -8,15 +8,6 @@ import framian.csv.Csv
 
 object tutorial {
 
-  private val ScaledAmount = """(\d+(?:\.\d+))([kKmMbB])?""".r
-
-  private def getScale(suffix: String): BigDecimal = suffix match {
-    case "k" | "K" => BigDecimal(1000)
-    case "m" | "M" => BigDecimal(1000000)
-    case "b" | "B" => BigDecimal(1000000000)
-    case "t" | "T" => BigDecimal("1000000000000")
-  }
-
   /**
    * Parses a value with an optional "scale" suffix at the end, such as 123K,
    * 24M, or 3.12B. This will return the scaled `BigDecimal`. Valid scales are
@@ -28,11 +19,6 @@ object tutorial {
   def parseScaledAmount(value: String): Cell[BigDecimal] = value.toUpperCase match {
     case ScaledAmount(value, scale) => Value(BigDecimal(value) * getScale(scale))
     case _ => NM
-  }
-
-  private def fetchCsv(url: String): Csv = {
-    val csv = scala.io.Source.fromURL(url).mkString
-    Csv.parseString(csv)
   }
 
   /**
@@ -58,6 +44,15 @@ object tutorial {
   def fetchSharePriceData(id: String): Frame[Int, String] =
     fetchSharePriceData(id, LocalDate.now().minusYears(5), LocalDate.now())
 
+  def fetchSharePriceData(id1: String, id2: String, id3: String*): Frame[Int, String] = {
+    val ids = id1 :: id2 :: id3.toList
+    ids.map { id =>
+      val frame = fetchSharePriceData(id)
+      val names = Series(frame.rowIndex, Column.value(id))
+      frame.join("Ticker", names)(Join.Inner)
+    }.reduceLeft(_ appendRows _)
+  }
+
   /**
    * Fetches some historical share price data from Yahoo! Finance. The result
    * is returned as a CSV file, so we use Framian's CSV parser to convert it to
@@ -81,5 +76,31 @@ object tutorial {
     val csv = fetchCsv(s"http://real-chart.finance.yahoo.com/table.csv?$queryString")
     csv.labeled.toFrame
   }
-}
 
+  /**
+   * Fetches the exchange rate data from Yahoo! Finance. All rates are for
+   * conversions to USD.
+   *
+   * @param currencies a list of currencies (eg. CAD, EUR, etc)
+   */
+  def fetchExchangeRate(currencies: String*): Frame[Int, String] = {
+    val ids = currencies.map(_ + "USD=X").mkString(",")
+    val fields = "c4l1"
+    val csv = fetchCsv(s"http://download.finance.yahoo.com/d/quotes.csv?s=$ids&f=$fields&e=.csv")
+    csv.unlabeled.toFrame.withColIndex(Index.fromKeys("Currency", "Rate"))
+  }
+
+  private def fetchCsv(url: String): Csv = {
+    val csv = scala.io.Source.fromURL(url).mkString
+    Csv.parseString(csv)
+  }
+
+  private val ScaledAmount = """(\d+(?:\.\d+))([kKmMbB])?""".r
+
+  private def getScale(suffix: String): BigDecimal = suffix match {
+    case "k" | "K" => BigDecimal(1000)
+    case "m" | "M" => BigDecimal(1000000)
+    case "b" | "B" => BigDecimal(1000000000)
+    case "t" | "T" => BigDecimal("1000000000000")
+  }
+}
